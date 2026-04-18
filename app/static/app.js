@@ -372,7 +372,8 @@ function setupStep5() {
         const diagCell = p.diag_id ? `${p.diag_label} <span class="hint">[${p.diag_id}]</span>` : `<span class="err">${p.diag || '—'}（無對應 ID）</span>`;
         const procCell = p.proc_id ? `${p.proc_label} <span class="hint">[${p.proc_id}]</span>` : (p.cath ? `<span class="err">${p.cath}（無對應 ID → 進備註）</span>` : '—');
         const sessionTag = p.in_schedule === false || p.session === 'OFF' ? '<span class="err">非時段</span>' : p.session;
-        return `<tr><td>${p.seq}</td><td>${p.doctor}</td><td>${p.name}</td><td>${p.chart}</td><td>${sessionTag}</td><td>${p.room}</td><td>${p.time}</td><td>${diagCell}</td><td>${procCell}</td><td>${p.note_out || ''}</td></tr>`;
+        const doctorCell = p.second_doctor ? `${p.doctor}<br><span class="hint">+${p.second_doctor}</span>` : p.doctor;
+        return `<tr><td>${p.seq}</td><td>${doctorCell}</td><td>${p.name}</td><td>${p.chart}</td><td>${sessionTag}</td><td>${p.room}</td><td>${p.time}</td><td>${diagCell}</td><td>${procCell}</td><td>${p.note_out || ''}</td></tr>`;
       }).join('');
       return `<h3>${d} — ${pts.length} 位</h3><table class="data"><thead><tr><th>#</th><th>主治</th><th>姓名</th><th>病歷</th><th>時段</th><th>房</th><th>時間</th><th>術前診斷</th><th>預計心導管</th><th>註記</th></tr></thead><tbody>${body}</tbody></table>`;
     }).join('');
@@ -469,17 +470,48 @@ function setupStep6() {
 }
 
 function renderSubtables(tables) {
+  const esc = s => String(s || '').replace(/</g, '&lt;').replace(/"/g, '&quot;');
   const html = Object.entries(tables).map(([doc, pts]) => {
     const body = pts.map(p => `
       <tr>
-        <td>${p.name}</td><td>${p.chart_no}</td>
-        <td>${(p.diagnosis || '') || '<span class="msg err">—</span>'}</td>
-        <td>${(p.cathlab || '') || '<span class="msg err">—</span>'}</td>
-        <td>${p.note || ''}</td>
+        <td>${esc(p.name)}</td><td>${esc(p.chart_no)}</td>
+        <td class="editable" data-row="${p.row}" data-col="6" contenteditable="true">${esc(p.diagnosis)}</td>
+        <td class="editable" data-row="${p.row}" data-col="7" contenteditable="true">${esc(p.cathlab)}</td>
+        <td>${esc(p.note)}</td>
       </tr>`).join('');
     return `<div class="doctor-block"><h3>${doc}（${pts.length}人）</h3>
-      <table class="data"><thead><tr><th>姓名</th><th>病歷號</th><th>術前診斷(F)</th><th>預計心導管(G)</th><th>註記</th></tr></thead>
+      <table class="data"><thead><tr><th>姓名</th><th>病歷號</th><th>術前診斷(F) 點擊編輯</th><th>預計心導管(G) 點擊編輯</th><th>註記</th></tr></thead>
       <tbody>${body}</tbody></table></div>`;
   }).join('');
   $('#subtables-wrap').innerHTML = html || '<p class="hint">沒找到子表格</p>';
+  wireEditableCells();
+}
+
+function wireEditableCells() {
+  const date = $('#date-input').value.trim();
+  $$('#subtables-wrap td.editable').forEach(td => {
+    td.dataset.original = td.textContent;
+    td.addEventListener('blur', async () => {
+      const val = td.textContent.trim();
+      if (val === td.dataset.original) return;
+      td.classList.add('saving');
+      try {
+        const fd = new FormData();
+        fd.append('date', date);
+        fd.append('row', td.dataset.row);
+        fd.append('col', td.dataset.col);
+        fd.append('value', val);
+        await api('/api/step4/cell', { method: 'POST', body: fd });
+        td.dataset.original = val;
+        td.classList.remove('saving');
+        td.classList.add('saved');
+        setTimeout(() => td.classList.remove('saved'), 1200);
+        flash($('#s4-msg'), `✓ 已存 ${String.fromCharCode(64 + parseInt(td.dataset.col))}${td.dataset.row}`, 'ok');
+      } catch (err) {
+        td.classList.remove('saving');
+        td.classList.add('error');
+        flash($('#s4-msg'), '✗ ' + err.message, 'err');
+      }
+    });
+  });
 }

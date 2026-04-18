@@ -24,6 +24,16 @@ from . import sheet_service
 
 SKIP_KEYWORDS = ["不排程", "檢查"]
 ZHANG_BORROWED_BY = ["王思翰", "張倉惟"]  # 借用張獻元時段時的註記關鍵字
+
+# 第二主治醫師短碼 → 全名（用於從註記抽取 attendingdoctor2）
+# 順序代表優先度；CLAUDE.md 規則 16：多人時葉立浩 > 其他
+SECOND_DOCTORS: list[tuple[str, str]] = [
+    ("浩", "葉立浩"),
+    ("寬", "葉建寬"),
+    ("晨", "洪晨惠"),
+    ("嘉", "蘇奕嘉"),
+    ("軨", "許毓軨"),
+]
 STATIC_DIR = Path(__file__).resolve().parent.parent / "data" / "static"
 
 _id_maps: Optional[dict] = None
@@ -270,8 +280,30 @@ async def _login_and_query(dates: list[str]) -> dict[str, set[str]]:
 
 # --------------------------------- plan enrichment ---------------------------------
 
+def _pick_second_doctor(note: str) -> tuple[str, str]:
+    """
+    From a patient's 備註 extract a single secondary-attending-doctor name
+    (for attendingdoctor2). Returns (full_name, short_tag) or ("", "").
+    Rule 16: when multiple present, 葉立浩 wins; others fall back to first-hit.
+    """
+    if not note:
+        return "", ""
+    hits: list[tuple[str, str]] = []
+    for tag, full in SECOND_DOCTORS:
+        if tag in note:
+            hits.append((tag, full))
+    if not hits:
+        return "", ""
+    # Priority: 葉立浩 first
+    for tag, full in hits:
+        if full == "葉立浩":
+            return full, tag
+    tag, full = hits[0]
+    return full, tag
+
+
 def _enrich(patients: list[dict], admit_date: str) -> list[dict]:
-    """Attach cath_date / session / room / time / diag_id / proc_id / note_fallback to each patient."""
+    """Attach cath_date / session / room / time / diag_id / proc_id / second_doctor to each patient."""
     # Group by (cath_date, doctor) to number patients per doctor block
     counters: dict[tuple[str, str], int] = {}
     for p in patients:
@@ -284,6 +316,7 @@ def _enrich(patients: list[dict], admit_date: str) -> list[dict]:
             p["diag_label"] = ""
             p["proc_id"] = ""
             p["proc_label"] = ""
+            p["second_doctor"] = ""
             p["note_out"] = p["note"]
             continue
         cath = get_cathlab_date(admit_date, p["doctor"], p["note"])
@@ -301,6 +334,7 @@ def _enrich(patients: list[dict], admit_date: str) -> list[dict]:
         # Procedure 文字沒映射 → 塞備註（CLAUDE.md 規則 feedback_cathlab_note_fallback）
         if p["cath"] and not q_id and p["cath"] not in note_out:
             note_out = (note_out + " " + p["cath"]).strip()
+        second, _tag = _pick_second_doctor(p["note"])
         p["cath_date"] = cath
         p["session"] = slot["session"]
         p["room"] = slot["room"]
@@ -309,6 +343,7 @@ def _enrich(patients: list[dict], admit_date: str) -> list[dict]:
         p["diag_label"] = d_label
         p["proc_id"] = q_id
         p["proc_label"] = q_label
+        p["second_doctor"] = second
         p["note_out"] = note_out
     return patients
 
@@ -404,8 +439,14 @@ async def _add_patient(page, base_url: str, cath_date: str, p: dict) -> dict:
         await page.fill('input[name="inspectiontime"]', p["time"])
         await page.select_option('select[name="examroom"]', value=room_code)
         await page.select_option('select[name="attendingdoctor1"]', value=doc_code)
-        # NOTE: second attending doctor handling omitted — user sets via 備註 per
-        # CLAUDE.md rule 16 (葉立浩優先 otherwise go 備註)
+        # Second attending (CLAUDE.md rule 16): 葉立浩 priority > first-hit
+        second_name = p.get("second_doctor", "")
+        second_code = codes["doctors"].get(second_name, "") if second_name else ""
+        if second_code:
+            try:
+                await page.select_option('select[name="attendingdoctor2"]', value=second_code)
+            except Exception:
+                pass  # field may not be present on this form variant
 
         await page.evaluate(
             """([dj, pj]) => {

@@ -106,3 +106,10 @@ textarea { width: 100%; font-family: ui-monospace, monospace; font-size: 13px; b
 
 .doctor-block { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin: 10px 0; }
 .doctor-block h3 { margin: 0 0 6px; color: var(--accent); }
+
+td.editable { background: #fffbe6; cursor: text; outline: none; min-width: 80px; }
+td.editable:hover { background: #fef3c7; }
+td.editable:focus { background: #fff; outline: 2px solid var(--accent); }
+td.editable.saving { background: #dbeafe; }
+td.editable.saved { background: #d1fae5; transition: background 1s; }
+td.editable.error { background: #fee2e2; }

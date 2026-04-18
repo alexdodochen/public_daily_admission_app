@@ -39,6 +39,7 @@ def read_doctor_subtables(date: str) -> dict[str, list[dict]]:
                 if "人）" in r[0]:
                     break
                 patients.append({
+                    "row":       i + 1,  # 1-based sheet row (A1 notation)
                     "name":      r[0].strip(),
                     "chart_no":  r[1].strip(),
                     "emr":       r[2].strip(),
