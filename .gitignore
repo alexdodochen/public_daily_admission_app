@@ -1,0 +1,7 @@
+app/data/config.json
+app/data/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env

@@ -1,0 +1,209 @@
+"""
+FastAPI entry point. Run with:
+    python -m app.run
+(or uvicorn app.main:app --port 8766)
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from . import config as appconfig
+from . import llm as llm_module
+from .services import sheet_service, ocr_service, lottery_service
+from .services import emr_service, ordering_service
+
+BASE = Path(__file__).parent
+app = FastAPI(title="每日入院名單 本地版")
+app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+templates = Jinja2Templates(directory=BASE / "templates")
+
+
+def _ctx(request: Request, **kw):
+    cfg = appconfig.load()
+    kw.setdefault("cfg", cfg)
+    kw.setdefault("ready", cfg.is_ready())
+    kw.setdefault("providers", llm_module.PROVIDERS)
+    return templates.TemplateResponse(request, kw.pop("template"), kw)
+
+
+# ------------------------------- pages --------------------------------
+
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    cfg = appconfig.load()
+    if not cfg.is_ready():
+        return RedirectResponse("/settings", status_code=302)
+    return _ctx(request, template="index.html")
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    return _ctx(request, template="settings.html", message="", ok=None)
+
+
+# ------------------------------ settings API ------------------------------
+
+@app.post("/api/settings")
+async def save_settings(
+    llm_provider: str = Form(""),
+    llm_api_key: str = Form(""),
+    llm_model: str = Form(""),
+    google_creds_path: str = Form(""),
+    sheet_id: str = Form(""),
+    emr_base_url: str = Form(""),
+    cathlab_base_url: str = Form(""),
+    cathlab_user: str = Form(""),
+    cathlab_pass: str = Form(""),
+    line_token: str = Form(""),
+    line_group_id: str = Form(""),
+):
+    cfg = appconfig.load()
+    cfg.llm_provider = llm_provider.strip()
+    if llm_api_key.strip():   # don't wipe existing key on blank submit
+        cfg.llm_api_key = llm_api_key.strip()
+    cfg.llm_model = llm_model.strip()
+    cfg.google_creds_path = google_creds_path.strip()
+    cfg.sheet_id = sheet_id.strip()
+    if emr_base_url.strip():
+        cfg.emr_base_url = emr_base_url.strip()
+    if cathlab_base_url.strip():
+        cfg.cathlab_base_url = cathlab_base_url.strip()
+    cfg.cathlab_user = cathlab_user.strip()
+    if cathlab_pass.strip():
+        cfg.cathlab_pass = cathlab_pass.strip()
+    if line_token.strip():
+        cfg.line_token = line_token.strip()
+    cfg.line_group_id = line_group_id.strip()
+    appconfig.save(cfg)
+    sheet_service.reset_cache()
+    return {"ok": True}
+
+
+@app.get("/api/settings/test")
+async def test_settings():
+    cfg = appconfig.load()
+    result = {"llm": None, "sheet": None}
+    # LLM ping
+    try:
+        llm = llm_module.get_llm()
+        reply = await llm.text("回答一個字：OK")
+        result["llm"] = {"ok": True, "provider": cfg.llm_provider,
+                         "reply": reply.strip()[:40]}
+    except Exception as e:
+        result["llm"] = {"ok": False, "error": str(e)}
+    # Sheet ping
+    try:
+        ok, msg = sheet_service.connection_check()
+        result["sheet"] = {"ok": ok, "msg": msg}
+    except Exception as e:
+        result["sheet"] = {"ok": False, "msg": str(e)}
+    return result
+
+
+# ------------------------------ Step 1 OCR ------------------------------
+
+@app.post("/api/step1/ocr")
+async def api_step1_ocr(image: UploadFile = File(...)):
+    try:
+        content = await image.read()
+        rows = await ocr_service.ocr_image(content, mime=image.content_type or "image/png")
+        return {"ok": True, "rows": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/step1/write")
+async def api_step1_write(date: str = Form(...), rows: str = Form(...)):
+    import json as _json
+    try:
+        patients = _json.loads(rows)
+        result = ocr_service.write_to_sheet(date, patients)
+        return {"ok": True, **result}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ------------------------------ Step 2 Lottery ------------------------------
+
+@app.get("/api/step2/context")
+async def api_step2_context(date: str, weekday: str = ""):
+    try:
+        patients = lottery_service.read_main_patients(date)
+        tickets = lottery_service.read_lottery_tickets(weekday) if weekday else {}
+        return {"ok": True, "patients": patients, "tickets": tickets}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/step2/run")
+async def api_step2_run(date: str = Form(...), tickets_json: str = Form(...),
+                        seed: int = Form(0)):
+    import json as _json
+    try:
+        tickets = _json.loads(tickets_json)
+        patients = lottery_service.read_main_patients(date)
+        drawn = lottery_service.draw(patients, tickets, seed=seed or None)
+        ordered = lottery_service.round_robin(drawn, tickets)
+        return {"ok": True, "drawn": drawn, "ordered": ordered}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/step2/write")
+async def api_step2_write(date: str = Form(...), ordered_json: str = Form(...)):
+    import json as _json
+    try:
+        ordered = _json.loads(ordered_json)
+        result = lottery_service.write_to_sheet(date, ordered)
+        return {"ok": True, **result}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ------------------------------ Step 3 EMR ------------------------------
+
+@app.post("/api/step3/run")
+async def api_step3_run(session_url: str = Form(...),
+                        patients_json: str = Form(...)):
+    import json as _json
+    try:
+        patients = _json.loads(patients_json)
+        results = await emr_service.extract_patients(session_url, patients)
+        return {"ok": True, "results": results}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ------------------------------ Step 4 Ordering ------------------------------
+
+@app.get("/api/step4/subtables")
+async def api_step4_subtables(date: str):
+    try:
+        tables = ordering_service.read_doctor_subtables(date)
+        return {"ok": True, "tables": tables}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/step4/integrate")
+async def api_step4_integrate(date: str = Form(...)):
+    try:
+        result = ordering_service.integrate_ordering(date)
+        return {"ok": True, **result}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# --------------------- Sheet explorer (read-only) ---------------------
+
+@app.get("/api/sheet/list")
+async def api_sheet_list():
+    try:
+        return {"ok": True, "sheets": sheet_service.list_sheets()}
+    except Exception as e:
+        raise HTTPException(500, str(e))

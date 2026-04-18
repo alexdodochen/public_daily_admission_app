@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block body %}
+<section class="card">
+  <h1>設定</h1>
+  <p class="hint">所有資訊存在本機 <code>app/data/config.json</code>，不會上傳。</p>
+
+  <form id="settings-form">
+    <fieldset>
+      <legend>1. LLM 提供者（你自己的帳號）</legend>
+      <label>選擇 provider
+        <select name="llm_provider" id="llm_provider">
+          <option value="">— 請選擇 —</option>
+          {% for p in providers %}
+          <option value="{{ p.id }}" {% if cfg.llm_provider == p.id %}selected{% endif %}>{{ p.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>API key
+        <input type="password" name="llm_api_key" placeholder="{% if cfg.llm_api_key %}（已儲存，留白則不變）{% else %}sk-…或 AIza…{% endif %}">
+      </label>
+      <label>模型名稱（選填，預設會用各家建議的模型）
+        <input name="llm_model" value="{{ cfg.llm_model }}" placeholder="例：claude-sonnet-4-6 / gpt-4o / gemini-2.0-flash">
+      </label>
+      <p class="hint" id="provider-help"></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>2. Google Sheet</legend>
+      <label>Service account JSON 絕對路徑
+        <input name="google_creds_path" value="{{ cfg.google_creds_path }}" placeholder="例：C:\Users\you\sigma-xxxxx.json">
+      </label>
+      <label>Spreadsheet ID
+        <input name="sheet_id" value="{{ cfg.sheet_id }}" placeholder="從試算表網址 /d/ 後面那一段">
+      </label>
+      <p class="hint">服務帳號需要加入該試算表的編輯者。</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>3. EMR（選填，Step 3 需要）</legend>
+      <label>EMR base URL
+        <input name="emr_base_url" value="{{ cfg.emr_base_url }}">
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>4. 導管排程 WEBCVIS（選填，Step 5 需要）</legend>
+      <label>WEBCVIS URL
+        <input name="cathlab_base_url" value="{{ cfg.cathlab_base_url }}">
+      </label>
+      <label>帳號
+        <input name="cathlab_user" value="{{ cfg.cathlab_user }}">
+      </label>
+      <label>密碼
+        <input type="password" name="cathlab_pass" placeholder="{% if cfg.cathlab_pass %}（已儲存）{% endif %}">
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>5. LINE 推播（選填，Step 6 需要）</legend>
+      <label>Channel access token
+        <input type="password" name="line_token" placeholder="{% if cfg.line_token %}（已儲存）{% endif %}">
+      </label>
+      <label>Group ID
+        <input name="line_group_id" value="{{ cfg.line_group_id }}">
+      </label>
+    </fieldset>
+
+    <div class="actions">
+      <button type="submit">儲存</button>
+      <button type="button" id="test-btn">測試連線</button>
+      <span id="save-msg" class="msg"></span>
+    </div>
+  </form>
+
+  <pre id="test-output" class="test-output"></pre>
+</section>
+{% endblock %}

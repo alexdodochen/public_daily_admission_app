@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block body %}
+<section class="stepper">
+  <div class="step active" data-step="1">① 匯入名單</div>
+  <div class="step" data-step="2">② 抽籤排序</div>
+  <div class="step" data-step="3">③ EMR 摘要</div>
+  <div class="step" data-step="4">④ 入院序整合</div>
+  <div class="step" data-step="5">⑤ 導管排程</div>
+  <div class="step" data-step="6">⑥ LINE 推播</div>
+</section>
+
+<section class="card">
+  <div class="date-row">
+    <label>日期（Sheet 分頁名稱）
+      <input id="date-input" placeholder="例：20260420">
+    </label>
+    <label>星期（Step 2 抽籤表用）
+      <select id="weekday">
+        <option value="">—</option>
+        <option>週一</option><option>週二</option><option>週三</option>
+        <option>週四</option><option>週五</option>
+      </select>
+    </label>
+  </div>
+</section>
+
+<!-- Step 1 -->
+<section class="card panel" data-panel="1">
+  <h2>Step 1 — 住院名單截圖 OCR</h2>
+  <div class="drop-zone" id="drop-zone">
+    <p>將截圖拖到這裡，或 <input type="file" id="file-input" accept="image/*" style="display:inline"></p>
+  </div>
+  <img id="preview" style="max-width:100%;display:none;margin-top:10px">
+  <div class="actions">
+    <button id="ocr-btn" disabled>LLM 辨識</button>
+    <button id="write1-btn" disabled>寫入 Sheet A-L</button>
+    <span id="ocr-msg" class="msg"></span>
+  </div>
+  <div id="ocr-table-wrap"></div>
+</section>
+
+<!-- Step 2 -->
+<section class="card panel hidden" data-panel="2">
+  <h2>Step 2 — 抽籤 + Round-Robin</h2>
+  <div class="actions">
+    <button id="load2-btn">讀取主資料 + 抽籤表</button>
+    <button id="run2-btn" disabled>執行抽籤</button>
+    <button id="write2-btn" disabled>寫入 N-S</button>
+    <span id="s2-msg" class="msg"></span>
+  </div>
+  <div id="tickets-wrap"></div>
+  <div id="drawn-wrap"></div>
+  <div id="ordered-wrap"></div>
+</section>
+
+<!-- Step 3 -->
+<section class="card panel hidden" data-panel="3">
+  <h2>Step 3 — EMR 摘要（Playwright）</h2>
+  <p class="hint">請自己先在瀏覽器登入 EMR，然後把查詢頁網址貼過來。</p>
+  <label>Session URL
+    <input id="session-url" placeholder="http://.../Emrquery/...">
+  </label>
+  <p class="hint">病人清單預設取 Step 2 的 ordered 結果，你也可以貼 JSON。</p>
+  <textarea id="emr-patients" rows="6" placeholder='[{"chart_no":"123","name":"王小明","doctor":"李文煌"}]'></textarea>
+  <div class="actions">
+    <button id="run3-btn">開始擷取 + LLM 摘要</button>
+    <span id="s3-msg" class="msg"></span>
+  </div>
+  <div id="emr-results"></div>
+</section>
+
+<!-- Step 4 -->
+<section class="card panel hidden" data-panel="4">
+  <h2>Step 4 — F/G 檢查 + 整合入院序</h2>
+  <div class="actions">
+    <button id="load4-btn">讀取醫師子表格</button>
+    <button id="integrate4-btn" disabled>整合寫入 N-W</button>
+    <span id="s4-msg" class="msg"></span>
+  </div>
+  <div id="subtables-wrap"></div>
+</section>
+
+<section class="card panel hidden" data-panel="5">
+  <h2>Step 5 — 導管排程（WEBCVIS）</h2>
+  <p class="hint">尚未在本地版實作。請暫時使用 repo 裡的 <code>cathlab_keyin_*.py</code> 腳本。</p>
+</section>
+
+<section class="card panel hidden" data-panel="6">
+  <h2>Step 6 — LINE 推播</h2>
+  <p class="hint">尚未在本地版實作。仍由部署在 Render 的 LINE bot 觸發。</p>
+</section>
+{% endblock %}

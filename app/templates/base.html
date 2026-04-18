@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>每日入院名單 — 本地版</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">🩺 每日入院名單</div>
+  <nav>
+    <a href="/">工作流程</a>
+    <a href="/settings">設定</a>
+  </nav>
+  <div class="status">
+    {% if ready %}
+      <span class="dot ok"></span> {{ cfg.llm_provider }} / {{ cfg.sheet_id[:8] }}…
+    {% else %}
+      <span class="dot bad"></span> 尚未設定
+    {% endif %}
+  </div>
+</header>
+<main>
+{% block body %}{% endblock %}
+</main>
+<script src="/static/app.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
