@@ -15,15 +15,11 @@ from __future__ import annotations
 from . import sheet_service
 
 
-def read_doctor_subtables(date: str) -> dict[str, list[dict]]:
+def parse_subtables_grid(grid: list[list[str]]) -> dict[str, list[dict]]:
     """
-    Scan rows below main data for title cells like "李文煌（3人）"
-    and harvest the 8-col sub-table following each.
+    Pure helper: take an A1:H{n} grid (already read) and extract
+    doctor sub-tables. Split out so tests can hit it without a Sheet.
     """
-    ws = sheet_service.get_worksheet(date)
-    if ws is None:
-        raise ValueError(f"找不到工作表 {date}")
-    grid = sheet_service.read_range(ws, "A1:H500")
     tables: dict[str, list[dict]] = {}
     i = 0
     while i < len(grid):
@@ -54,6 +50,15 @@ def read_doctor_subtables(date: str) -> dict[str, list[dict]]:
             continue
         i += 1
     return tables
+
+
+def read_doctor_subtables(date: str) -> dict[str, list[dict]]:
+    """Scan rows below main data for title cells like "李文煌（3人）"."""
+    ws = sheet_service.get_worksheet(date)
+    if ws is None:
+        raise ValueError(f"找不到工作表 {date}")
+    grid = sheet_service.read_range(ws, "A1:H500")
+    return parse_subtables_grid(grid)
 
 
 def integrate_ordering(date: str) -> dict:

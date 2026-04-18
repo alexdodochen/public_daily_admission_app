@@ -45,9 +45,13 @@ python -m app.run
 | ① **匯入名單** | 拖曳住院名單截圖 → LLM 辨識成 A-L 欄表格 → 檢視/修正病歷號 → 寫入 Sheet |
 | ② **抽籤排序** | 讀主資料 + 抽籤表 → 設定每位醫師籤數 → Round-robin → 寫 N-S |
 | ③ **EMR 摘要** | 自己登入 EMR 後貼 session URL → Playwright 帶 session 抓 SOAP → LLM 產 4 段摘要 |
-| ④ **入院序整合** | 讀醫師子表格 F/G → 合併回 N-W（保留 V/W 手動標記） |
-| ⑤ 導管排程 | 尚未 port，仍需跑 repo 裡的 `cathlab_keyin_*.py` |
-| ⑥ LINE 推播 | 尚未 port，仍由 Render LINE bot 觸發 |
+| ④ **入院序整合** | 讀醫師子表格 F/G → 合併回 N-W（保留 V/W 手動標記）；F/G 欄可在頁面直接點擊修改 |
+| ⑤ **導管排程** | `plan`（dry-run）/`verify`（登入 WEBCVIS 查漏）/`keyin`（Phase 1 ADD + Phase 2 UPT）；自動帶入時段、房間、第二主治醫師（葉立浩優先） |
+| ⑥ **LINE 推播** | 讀 N-Q 四欄 → 預覽 → 推到 LINE group（用自己的 Messaging API token） |
+
+## 4.5 自動更新
+
+App 啟動時會打 GitHub API 比對版本；有新版右上會跳黃色徽章，按「更新」會 `git pull --ff-only` 再重啟。非 git checkout 需要自己 `git pull` 或重新 `git clone`。
 
 ## 5. 檔案結構
 
@@ -66,10 +70,24 @@ app/
     lottery_service.py  # Step 2
     emr_service.py      # Step 3
     ordering_service.py # Step 4
+    cathlab_service.py  # Step 5（plan/verify/keyin + schedule/id mapping）
+    line_service.py     # Step 6
+    updater.py          # 客戶端自動更新
+  data/
+    static/           # 醫院專屬靜態表（schedule / id maps / doctor codes）
+    config.json       # 你的 API key / Sheet ID（gitignore）
   templates/        # Jinja2 HTML
   static/           # CSS + 前端 JS（無框架）
-  data/             # config.json（gitignore）
 ```
+
+## 開發者
+
+```bash
+# 執行 pytest（42 個純邏輯測試）
+python -m pytest tests/ -v
+```
+
+CI 會在 push / PR 時自動跑 pytest（見 `.github/workflows/pytest.yml`）。
 
 ## 6. 常見問題
 

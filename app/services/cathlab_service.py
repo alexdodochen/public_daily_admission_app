@@ -123,21 +123,41 @@ def resolve_proc(text: str) -> tuple[str, str]:
     return _resolve_id(text, id_maps().get("proc", {}))
 
 
-def compute_slot(doctor: str, cath_date_str: str) -> dict:
+def compute_all_slots(doctor: str, cath_date_str: str) -> list[dict]:
     """
-    Returns {session: AM|PM|OFF, room: H1/H2/C1/C2, in_schedule: bool}.
-    OFF → 非時段（H1, 2100+）.
+    Returns list of all scheduled slots for `doctor` on `cath_date_str`.
+    Each slot = {session: AM|PM, room: H1/H2/C1/C2}. Empty list if none.
     """
     try:
         dt = datetime.strptime(cath_date_str, "%Y/%m/%d")
     except ValueError:
-        return {"session": "OFF", "room": "H1", "in_schedule": False}
+        return []
     wd = str(dt.weekday())   # 0..4
     info = schedule().get("doctors", {}).get(doctor, {})
-    slot = info.get(wd)
-    if slot:
-        return {"session": slot["session"], "room": slot["room"], "in_schedule": True}
-    return {"session": "OFF", "room": "H1", "in_schedule": False}
+    entries = info.get(wd)
+    if not entries:
+        return []
+    # Back-compat: accept dict (single slot) as well as list
+    if isinstance(entries, dict):
+        entries = [entries]
+    return list(entries)
+
+
+def compute_slot(doctor: str, cath_date_str: str, prefer_session: str = "") -> dict:
+    """
+    Returns {session, room, in_schedule}. OFF → 非時段（H1, 2100+）.
+    If doctor has multiple slots same day, `prefer_session` ('AM'/'PM') picks
+    one; otherwise returns the first (AM-before-PM in our schedule).
+    """
+    slots = compute_all_slots(doctor, cath_date_str)
+    if not slots:
+        return {"session": "OFF", "room": "H1", "in_schedule": False}
+    if prefer_session:
+        for s in slots:
+            if s["session"] == prefer_session:
+                return {"session": s["session"], "room": s["room"], "in_schedule": True}
+    s = slots[0]
+    return {"session": s["session"], "room": s["room"], "in_schedule": True}
 
 
 def compute_time(session: str, index: int) -> str:
@@ -320,7 +340,18 @@ def _enrich(patients: list[dict], admit_date: str) -> list[dict]:
             p["note_out"] = p["note"]
             continue
         cath = get_cathlab_date(admit_date, p["doctor"], p["note"])
-        slot = compute_slot(p["doctor"], cath)
+        # Honour PM hints in note: 下午, PM, 晚 → prefer PM slot when doctor
+        # has both AM and PM on the day (e.g. 柯呈諭 Thu, 張獻元 Wed).
+        prefer = ""
+        if any(k in p["note"] for k in ("下午", "PM", "pm", "晚")):
+            prefer = "PM"
+        elif any(k in p["note"] for k in ("上午", "AM", "am", "早")):
+            prefer = "AM"
+        # 張獻元 Tue same-day always means his Tue PM slot
+        if p["doctor"] == "張獻元" and datetime.strptime(admit_date, "%Y%m%d").weekday() == 1 \
+                and cath == datetime.strptime(admit_date, "%Y%m%d").strftime("%Y/%m/%d"):
+            prefer = "PM"
+        slot = compute_slot(p["doctor"], cath, prefer_session=prefer)
         key = (cath, p["doctor"])
         idx = counters.get(key, 0)
         counters[key] = idx + 1
