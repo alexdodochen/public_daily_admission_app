@@ -40,12 +40,12 @@ def extract_json(raw: str):
     # Strip ```json ... ``` fences
     m = re.search(r"```(?:json)?\s*([\s\S]+?)```", raw)
     candidate = m.group(1).strip() if m else raw.strip()
-    # Find first { or [
-    for opener in "[{":
-        i = candidate.find(opener)
-        if i != -1:
-            candidate = candidate[i:]
-            break
+    # Trim prose before the first JSON opener — whichever appears earliest.
+    positions = [(candidate.find(c), c) for c in "[{"]
+    positions = [(i, c) for i, c in positions if i != -1]
+    if positions:
+        start_i, _ = min(positions)
+        candidate = candidate[start_i:]
     try:
         return json.loads(candidate)
     except Exception:
