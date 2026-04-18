@@ -236,9 +236,10 @@ async def api_step5_verify(date: str = Form(...)):
 
 
 @app.post("/api/step5/keyin")
-async def api_step5_keyin(date: str = Form(...)):
+async def api_step5_keyin(date: str = Form(...), dry_run: str = Form("no")):
     try:
-        return {"ok": True, **(await cathlab_service.keyin(date))}
+        result = await cathlab_service.keyin(date, dry_run=(dry_run == "yes"))
+        return {"ok": True, **result}
     except Exception as e:
         raise HTTPException(500, str(e))
 
