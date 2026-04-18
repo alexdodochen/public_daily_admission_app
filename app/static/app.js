@@ -2,6 +2,36 @@
 // Small vanilla JS app. No framework — keeps the local bundle zero-deps.
 // ========================================================================
 
+// ---------- Auto-update banner (runs on every page) ----------
+(async function () {
+  try {
+    const r = await fetch('/api/update/check').then(x => x.json());
+    if (!r.available) return;
+    const badge = document.getElementById('update-badge');
+    const text = document.getElementById('update-text');
+    if (!badge) return;
+    const cur = (r.current && r.current.short) || '?';
+    const rem = (r.remote && r.remote.short) || '?';
+    text.textContent = `有新版本 ${cur} → ${rem}`;
+    text.title = (r.remote && r.remote.message) || '';
+    badge.hidden = false;
+    document.getElementById('update-btn').addEventListener('click', async () => {
+      if (!confirm(`確定更新到 ${rem}？\n${(r.remote && r.remote.message) || ''}`)) return;
+      const fd = new FormData();
+      fd.append('restart', 'yes');
+      const resp = await fetch('/api/update/apply', { method: 'POST', body: fd })
+        .then(x => x.json());
+      if (resp.ok) {
+        alert(`更新 ${resp.from} → ${resp.to} 成功，App 會自動重啟（約 2 秒後刷新頁面）`);
+        setTimeout(() => location.reload(), 2500);
+      } else {
+        alert('更新失敗：' + (resp.message || '未知錯誤'));
+      }
+    });
+  } catch (_) { /* offline or rate-limited — silently ignore */ }
+})();
+
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
@@ -84,6 +114,8 @@ if (document.querySelector('.stepper')) {
   setupStep2();
   setupStep3();
   setupStep4();
+  setupStep5();
+  setupStep6();
 }
 
 // ---------- Step 1: OCR ----------
@@ -326,6 +358,90 @@ function setupStep4() {
       flash($('#s4-msg'), `✓ 已整合 ${r.rows} 筆到 ${r.range}`, 'ok');
     } catch (err) {
       flash($('#s4-msg'), '✗ ' + err.message, 'err');
+    }
+  });
+}
+
+// ---------- Step 5: Cathlab ----------
+function setupStep5() {
+  const out = () => $('#s5-output');
+
+  $('#plan5-btn').addEventListener('click', async () => {
+    const date = $('#date-input').value.trim();
+    if (!date) return flash($('#s5-msg'), '請填日期', 'err');
+    try {
+      const r = await api(`/api/step5/plan?date=${date}`);
+      const blocks = Object.entries(r.plan).map(([d, pts]) => {
+        const body = pts.map(p =>
+          `<tr><td>${p.seq}</td><td>${p.doctor}</td><td>${p.name}</td><td>${p.chart}</td><td>${p.diag}</td><td>${p.cath}</td><td>${p.note || ''}</td></tr>`
+        ).join('');
+        return `<h3>${d} — ${pts.length} 位</h3><table class="data"><thead><tr><th>#</th><th>主治</th><th>姓名</th><th>病歷</th><th>F 術前</th><th>G 預計</th><th>註記</th></tr></thead><tbody>${body}</tbody></table>`;
+      }).join('');
+      const skips = r.skipped.length ? `<h3>跳過 ${r.skipped.length} 位</h3><ul>${r.skipped.map(p => `<li>${p.doctor} ${p.name} (${p.chart}) — ${p.note}</li>`).join('')}</ul>` : '';
+      out().innerHTML = blocks + skips;
+      flash($('#s5-msg'), '✓ 計畫已產出（未寫入 WEBCVIS）', 'ok');
+    } catch (err) {
+      flash($('#s5-msg'), '✗ ' + err.message, 'err');
+    }
+  });
+
+  $('#verify5-btn').addEventListener('click', async () => {
+    const date = $('#date-input').value.trim();
+    if (!date) return flash($('#s5-msg'), '請填日期', 'err');
+    if (!confirm('這會開啟 Playwright 登入 WEBCVIS 查詢排程，繼續？')) return;
+    flash($('#s5-msg'), '登入 WEBCVIS 查詢中…', 'ok');
+    const fd = new FormData(); fd.append('date', date);
+    try {
+      const r = await api('/api/step5/verify', { method: 'POST', body: fd });
+      const ok  = r.found.map(p => `<tr class="ok"><td>OK</td><td>${p.cath_date}</td><td>${p.doctor}</td><td>${p.name}</td><td>${p.chart}</td></tr>`).join('');
+      const bad = r.missing.map(p => `<tr class="bad"><td>NG</td><td>${p.cath_date}</td><td>${p.doctor}</td><td>${p.name}</td><td>${p.chart}</td></tr>`).join('');
+      const skip = r.skipped.map(p => `<tr><td>${p.unexpected_present ? '⚠ SKIP 卻在排程' : 'SKIP'}</td><td>—</td><td>${p.doctor}</td><td>${p.name}</td><td>${p.chart}</td></tr>`).join('');
+      out().innerHTML = `<p>OK ${r.totals.ok} / MISSING ${r.totals.missing} / SKIP ${r.totals.skip}</p>
+        <table class="data"><thead><tr><th>狀態</th><th>cath_date</th><th>主治</th><th>姓名</th><th>病歷</th></tr></thead>
+        <tbody>${bad}${ok}${skip}</tbody></table>`;
+      flash($('#s5-msg'), `✓ 驗證完成（${r.totals.missing} 筆遺漏）`, r.totals.missing ? 'err' : 'ok');
+    } catch (err) {
+      flash($('#s5-msg'), '✗ ' + err.message, 'err');
+    }
+  });
+
+  $('#keyin5-btn').addEventListener('click', async () => {
+    const date = $('#date-input').value.trim();
+    if (!date) return flash($('#s5-msg'), '請填日期', 'err');
+    const fd = new FormData(); fd.append('date', date);
+    const r = await api('/api/step5/keyin', { method: 'POST', body: fd });
+    out().innerHTML = `<p class="hint">${r.reason}</p><ol>${(r.next_steps || []).map(s => `<li>${s}</li>`).join('')}</ol>`;
+    flash($('#s5-msg'), '⚠ 尚未實作，請用 repo 舊腳本', 'err');
+  });
+}
+
+// ---------- Step 6: LINE push ----------
+function setupStep6() {
+  $('#preview6-btn').addEventListener('click', async () => {
+    const date = $('#date-input').value.trim();
+    if (!date) return flash($('#s6-msg'), '請填日期', 'err');
+    try {
+      const r = await api(`/api/step6/preview?date=${date}`);
+      $('#line-preview').textContent = r.text;
+      flash($('#s6-msg'), '✓ 預覽完成（尚未推播）', 'ok');
+    } catch (err) {
+      flash($('#s6-msg'), '✗ ' + err.message, 'err');
+    }
+  });
+
+  $('#push6-btn').addEventListener('click', async () => {
+    const date = $('#date-input').value.trim();
+    if (!date) return flash($('#s6-msg'), '請填日期', 'err');
+    if (!confirm(`確定推送 ${date} 的入院名單到 LINE group？`)) return;
+    const fd = new FormData();
+    fd.append('date', date);
+    fd.append('group_id', $('#line-group').value);
+    try {
+      const r = await api('/api/step6/push', { method: 'POST', body: fd });
+      $('#line-preview').textContent = r.preview;
+      flash($('#s6-msg'), `✓ 已推到 ${r.sent_to}（${r.length} 字）`, 'ok');
+    } catch (err) {
+      flash($('#s6-msg'), '✗ ' + err.message, 'err');
     }
   });
 }

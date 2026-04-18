@@ -13,6 +13,10 @@
     <a href="/">工作流程</a>
     <a href="/settings">設定</a>
   </nav>
+  <div id="update-badge" class="update-badge" hidden>
+    <span class="dot upd"></span><span id="update-text">有新版本</span>
+    <button id="update-btn" class="mini">更新</button>
+  </div>
   <div class="status">
     {% if ready %}
       <span class="dot ok"></span> {{ cfg.llm_provider }} / {{ cfg.sheet_id[:8] }}…

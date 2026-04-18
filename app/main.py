@@ -15,7 +15,8 @@ from fastapi.templating import Jinja2Templates
 from . import config as appconfig
 from . import llm as llm_module
 from .services import sheet_service, ocr_service, lottery_service
-from .services import emr_service, ordering_service
+from .services import emr_service, ordering_service, line_service
+from .services import updater, cathlab_service
 
 BASE = Path(__file__).parent
 app = FastAPI(title="每日入院名單 本地版")
@@ -197,6 +198,84 @@ async def api_step4_integrate(date: str = Form(...)):
         return {"ok": True, **result}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+# ------------------------------ Step 4 Sheet writeback ------------------------------
+
+@app.post("/api/step4/cell")
+async def api_step4_cell(date: str = Form(...), row: int = Form(...),
+                          col: int = Form(...), value: str = Form("")):
+    """Generic single-cell writeback for inline editing (F/G columns)."""
+    try:
+        ws = sheet_service.get_worksheet(date)
+        if ws is None:
+            raise ValueError(f"找不到工作表 {date}")
+        ws.update_cell(row, col, value)
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ------------------------------ Step 5 Cathlab ------------------------------
+
+@app.get("/api/step5/plan")
+async def api_step5_plan(date: str):
+    try:
+        return {"ok": True, **cathlab_service.plan(date)}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/step5/verify")
+async def api_step5_verify(date: str = Form(...)):
+    try:
+        report = await cathlab_service.verify(date)
+        return {"ok": True, **report}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/step5/keyin")
+async def api_step5_keyin(date: str = Form(...)):
+    try:
+        return {"ok": True, **(await cathlab_service.keyin(date))}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ------------------------------ Step 6 LINE ------------------------------
+
+@app.get("/api/step6/preview")
+async def api_step6_preview(date: str):
+    try:
+        text = await line_service.preview(date)
+        return {"ok": True, "text": text}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/step6/push")
+async def api_step6_push(date: str = Form(...), group_id: str = Form("")):
+    try:
+        result = await line_service.push(date, override_group=group_id)
+        return {"ok": True, **result}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ------------------------------ Auto-update ------------------------------
+
+@app.get("/api/update/check")
+async def api_update_check():
+    return await updater.check()
+
+
+@app.post("/api/update/apply")
+async def api_update_apply(restart: str = Form("no")):
+    result = await updater.apply()
+    if result.get("ok") and restart == "yes":
+        updater.schedule_restart()
+    return result
 
 
 # --------------------- Sheet explorer (read-only) ---------------------

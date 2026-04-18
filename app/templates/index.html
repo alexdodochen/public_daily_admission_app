@@ -82,11 +82,27 @@
 
 <section class="card panel hidden" data-panel="5">
   <h2>Step 5 — 導管排程（WEBCVIS）</h2>
-  <p class="hint">尚未在本地版實作。請暫時使用 repo 裡的 <code>cathlab_keyin_*.py</code> 腳本。</p>
+  <p class="hint">資料驅動：讀子表格（統整資料）→ 算每位 cath_date → 規劃/驗證/keyin。</p>
+  <div class="actions">
+    <button id="plan5-btn">計畫（dry-run）</button>
+    <button id="verify5-btn">驗證（登入 WEBCVIS 查）</button>
+    <button id="keyin5-btn">Keyin（尚未實作）</button>
+    <span id="s5-msg" class="msg"></span>
+  </div>
+  <div id="s5-output"></div>
 </section>
 
 <section class="card panel hidden" data-panel="6">
-  <h2>Step 6 — LINE 推播</h2>
-  <p class="hint">尚未在本地版實作。仍由部署在 Render 的 LINE bot 觸發。</p>
+  <h2>Step 6 — LINE 推播（入院名單給住服）</h2>
+  <p class="hint">從 Sheet N-Q 四欄（序號 / 主治 / 姓名 / 備註(住服)）組成訊息，推到 LINE group。</p>
+  <label>Group ID（留空用設定頁的預設）
+    <input id="line-group" placeholder="C xxxxx...">
+  </label>
+  <div class="actions">
+    <button id="preview6-btn">預覽訊息</button>
+    <button id="push6-btn">推出去</button>
+    <span id="s6-msg" class="msg"></span>
+  </div>
+  <pre id="line-preview" class="test-output"></pre>
 </section>
 {% endblock %}
