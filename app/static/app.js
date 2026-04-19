@@ -168,17 +168,76 @@ function setupStep1() {
   $('#write1-btn').addEventListener('click', async () => {
     const date = $('#date-input').value.trim();
     if (!date) return flash($('#ocr-msg'), '請先填日期', 'err');
-    // collect from editable table
     const rows = collectOcrTable();
-    const fd = new FormData();
-    fd.append('date', date);
-    fd.append('rows', JSON.stringify(rows));
-    try {
-      const r = await api('/api/step1/write', { method: 'POST', body: fd });
+    await step1Write(date, rows, /* allowOverwrite */ false);
+  });
+}
+
+async function step1Write(date, rows, allowOverwrite) {
+  const fd = new FormData();
+  fd.append('date', date);
+  fd.append('rows', JSON.stringify(rows));
+  fd.append('allow_overwrite', allowOverwrite ? 'yes' : 'no');
+  try {
+    const r = await api('/api/step1/write', { method: 'POST', body: fd });
+    if (r.needs_confirm) {
+      // Existing sheet — show diff preview and ask for confirmation
+      const confirmed = await showStep1DiffAndConfirm(r);
+      if (confirmed) {
+        await step1Write(date, rows, true);
+      } else {
+        flash($('#ocr-msg'), '取消寫入（已保留舊資料）', 'ok');
+      }
+    } else {
       flash($('#ocr-msg'), `✓ 已寫入 ${r.range}`, 'ok');
-    } catch (err) {
-      flash($('#ocr-msg'), '✗ ' + err.message, 'err');
     }
+  } catch (err) {
+    flash($('#ocr-msg'), '✗ ' + err.message, 'err');
+  }
+}
+
+function showStep1DiffAndConfirm(diff) {
+  // Render a mini diff table inside #ocr-msg-diff and return a Promise<boolean>
+  const host = $('#ocr-msg-diff') || (() => {
+    const div = document.createElement('div');
+    div.id = 'ocr-msg-diff';
+    $('#ocr-msg').insertAdjacentElement('afterend', div);
+    return div;
+  })();
+
+  const esc = s => String(s || '').replace(/</g, '&lt;');
+  const rowHtml = (cls, label, items) => {
+    if (!items || !items.length) return '';
+    const lis = items.map(p => {
+      const extra = p.old && p.new
+        ? ` <span class="hint">${esc(p.old)} → ${esc(p.new)}</span>`
+        : (p.doctor ? ` <span class="hint">${esc(p.doctor)}</span>` : '');
+      return `<li>${esc(p.chart_no)} ${esc(p.name || '')}${extra}</li>`;
+    }).join('');
+    return `<div class="diff-block ${cls}"><h4>${label}（${items.length}）</h4><ul>${lis}</ul></div>`;
+  };
+
+  host.innerHTML = `
+    <div class="diff-wrap">
+      <p><strong>⚠ 此日期 sheet 已有 ${diff.existing_count} 位病人，本次新截圖 ${diff.new_count} 位。</strong></p>
+      ${rowHtml('added',   '新增',   diff.added)}
+      ${rowHtml('removed', '取消',   diff.removed)}
+      ${rowHtml('changed', '換醫師', diff.doctor_changed)}
+      <p class="hint">確認後：A-L 主資料會覆蓋為新清單。子表格與 N-W 入院序「不會自動更新」—— 新增/取消病人需手動在 Step 2/3/4 重跑。</p>
+      <button id="diff-confirm-btn" class="primary">確認覆蓋</button>
+      <button id="diff-cancel-btn">取消</button>
+    </div>
+  `;
+
+  return new Promise(resolve => {
+    $('#diff-confirm-btn').addEventListener('click', () => {
+      host.innerHTML = '';
+      resolve(true);
+    });
+    $('#diff-cancel-btn').addEventListener('click', () => {
+      host.innerHTML = '';
+      resolve(false);
+    });
   });
 }
 

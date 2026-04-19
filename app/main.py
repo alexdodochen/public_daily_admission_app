@@ -118,12 +118,30 @@ async def api_step1_ocr(image: UploadFile = File(...)):
         raise HTTPException(500, str(e))
 
 
-@app.post("/api/step1/write")
-async def api_step1_write(date: str = Form(...), rows: str = Form(...)):
+@app.post("/api/step1/plan")
+async def api_step1_plan(date: str = Form(...), rows: str = Form(...)):
+    """Preview diff vs existing date-sheet without writing."""
     import json as _json
     try:
         patients = _json.loads(rows)
-        result = ocr_service.write_to_sheet(date, patients)
+        return {"ok": True, **ocr_service.plan_write(date, patients)}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/step1/write")
+async def api_step1_write(date: str = Form(...), rows: str = Form(...),
+                          allow_overwrite: str = Form("no")):
+    """
+    Write main-data A-L. If sheet already has data and allow_overwrite != "yes",
+    returns diff + needs_confirm=True instead of writing.
+    """
+    import json as _json
+    try:
+        patients = _json.loads(rows)
+        result = ocr_service.write_to_sheet(
+            date, patients, allow_overwrite=(allow_overwrite == "yes"),
+        )
         return {"ok": True, **result}
     except Exception as e:
         raise HTTPException(500, str(e))

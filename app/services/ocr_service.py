@@ -62,22 +62,167 @@ async def ocr_image(image_bytes: bytes, mime: str = "image/png") -> list[dict]:
     return out
 
 
-def write_to_sheet(date: str, patients: list[dict]) -> dict:
-    """Overwrite main data area A2:L{n+1} with reviewed patient rows."""
+def _patients_to_ab_rows(patients: list[dict]) -> list[list[str]]:
+    return [[
+        p.get("admit_date", ""), p.get("op_date", ""),
+        p.get("department", ""), p.get("doctor", ""),
+        p.get("icd_diagnosis", ""), p.get("name", ""),
+        p.get("gender", ""), p.get("age", ""),
+        p.get("chart_no", ""), p.get("bed", ""),
+        p.get("hint", ""), p.get("urgent", ""),
+    ] for p in patients]
+
+
+def diff_main_data(existing_rows: list[list[str]],
+                   new_patients: list[dict]) -> dict:
+    """
+    Compare A-L main-data rows (existing) against freshly OCR'd patient list.
+    Pure function — no Sheet access.
+
+    Match key = chart_no (I 欄 in existing = index 8).
+    Patients in either side without chart_no are reported as "unmatched".
+
+    Returns:
+      {
+        "existing_count": int,
+        "new_count":      int,
+        "added":    [{chart_no, name, doctor}],       # new∖existing
+        "removed":  [{chart_no, name, doctor}],       # existing∖new
+        "kept":     [{chart_no, name, doctor_new, doctor_old}],
+        "doctor_changed": [{chart_no, name, old, new}],
+        "unmatched_existing": [row-index in existing (0-based, 1=sheet row 2)],
+        "unmatched_new":      [index in new_patients],
+      }
+    """
+    def existing_chart(r):
+        return (r + [""] * 9)[8].strip() if r else ""
+
+    ex_by_chart = {}
+    unmatched_existing = []
+    for i, r in enumerate(existing_rows):
+        ch = existing_chart(r)
+        if not ch:
+            # skip fully-blank rows silently
+            if any((c or "").strip() for c in (r or [])):
+                unmatched_existing.append(i)
+            continue
+        ex_by_chart[ch] = {
+            "chart_no": ch,
+            "name":    (r + [""] * 6)[5].strip(),
+            "doctor":  (r + [""] * 4)[3].strip(),
+            "row":     i,
+        }
+
+    new_by_chart = {}
+    unmatched_new = []
+    for i, p in enumerate(new_patients):
+        ch = (p.get("chart_no") or "").strip()
+        if not ch:
+            unmatched_new.append(i)
+            continue
+        new_by_chart[ch] = {
+            "chart_no": ch,
+            "name":    (p.get("name") or "").strip(),
+            "doctor":  (p.get("doctor") or "").strip(),
+        }
+
+    ex_set = set(ex_by_chart)
+    new_set = set(new_by_chart)
+
+    added    = [new_by_chart[c] for c in new_set - ex_set]
+    removed  = [ex_by_chart[c] for c in ex_set - new_set]
+    kept = []
+    doctor_changed = []
+    for c in ex_set & new_set:
+        old = ex_by_chart[c]
+        nw  = new_by_chart[c]
+        kept.append({
+            "chart_no":   c,
+            "name":       nw["name"] or old["name"],
+            "doctor_old": old["doctor"],
+            "doctor_new": nw["doctor"],
+        })
+        if nw["doctor"] and old["doctor"] and nw["doctor"] != old["doctor"]:
+            doctor_changed.append({
+                "chart_no": c, "name": nw["name"] or old["name"],
+                "old": old["doctor"], "new": nw["doctor"],
+            })
+
+    return {
+        "existing_count": len(ex_by_chart),
+        "new_count":      len(new_by_chart),
+        "added":          added,
+        "removed":        removed,
+        "kept":           kept,
+        "doctor_changed": doctor_changed,
+        "unmatched_existing": unmatched_existing,
+        "unmatched_new":      unmatched_new,
+    }
+
+
+def plan_write(date: str, patients: list[dict]) -> dict:
+    """
+    Read current A-L of the date sheet and compute a diff against the
+    new OCR'd list. Does NOT write.
+
+    Returns the diff plus `sheet_has_data: bool` so the UI can decide
+    whether to require a confirm before applying.
+    """
+    ws = sheet_service.get_worksheet(date)
+    if ws is None:
+        # Sheet doesn't exist yet → no diff possible, first-time write
+        return {
+            "sheet_has_data": False,
+            "existing_count": 0,
+            "new_count":      len([p for p in patients
+                                   if (p.get("chart_no") or "").strip()]),
+            "added":          [],
+            "removed":        [],
+            "kept":           [],
+            "doctor_changed": [],
+            "unmatched_existing": [],
+            "unmatched_new":      [],
+        }
+    existing = sheet_service.read_range(ws, "A2:L200")
+    # Trim trailing blank rows
+    while existing and not any((c or "").strip() for c in existing[-1]):
+        existing.pop()
+    diff = diff_main_data(existing, patients)
+    diff["sheet_has_data"] = bool(existing)
+    return diff
+
+
+def write_to_sheet(date: str, patients: list[dict],
+                   allow_overwrite: bool = False) -> dict:
+    """
+    Write main data A2:L{n+1} with reviewed patient rows.
+
+    If the sheet already has data AND `allow_overwrite` is False, we refuse
+    and return the diff — caller must re-submit with allow_overwrite=True
+    after the user confirms the add/remove list.
+
+    Note: this MVP only rewrites A-L. Sub-tables (below main data) and N-W
+    ordering are NOT auto-rebuilt — caller should rerun Steps 2-4 after
+    significant adds/removes. Cancelled patients still linger in sub-tables
+    until cleaned up manually or in a later phase.
+    """
     ws = sheet_service.ensure_date_sheet(date)
     if not patients:
         return {"rows": 0, "sheet": date}
 
-    body = []
-    for p in patients:
-        body.append([
-            p.get("admit_date", ""), p.get("op_date", ""),
-            p.get("department", ""), p.get("doctor", ""),
-            p.get("icd_diagnosis", ""), p.get("name", ""),
-            p.get("gender", ""), p.get("age", ""),
-            p.get("chart_no", ""), p.get("bed", ""),
-            p.get("hint", ""), p.get("urgent", ""),
-        ])
+    if not allow_overwrite:
+        existing = sheet_service.read_range(ws, "A2:L200")
+        while existing and not any((c or "").strip() for c in existing[-1]):
+            existing.pop()
+        if existing:
+            diff = diff_main_data(existing, patients)
+            diff["sheet_has_data"] = True
+            diff["needs_confirm"]  = True
+            diff["sheet"]          = date
+            return diff
+
+    body = _patients_to_ab_rows(patients)
     end_row = 1 + len(body)
     sheet_service.write_range(ws, f"A2:L{end_row}", body, raw=False)
-    return {"rows": len(body), "sheet": date, "range": f"A2:L{end_row}"}
+    return {"rows": len(body), "sheet": date,
+            "range": f"A2:L{end_row}", "needs_confirm": False}
