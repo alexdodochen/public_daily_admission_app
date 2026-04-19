@@ -56,6 +56,11 @@ main { max-width: 1100px; margin: 20px auto; padding: 0 16px; }
 .fmt-issues li.fmt-fixable { color: #92400e; }
 .fmt-issues li.fmt-manual  { color: var(--bad); }
 
+.final-checks { list-style: none; padding-left: 0; margin: 8px 0; font-size: 14px; }
+.final-checks li { padding: 4px 0; }
+.final-checks li.final-ok   { color: var(--ok); }
+.final-checks li.final-fail { color: var(--bad); }
+
 fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 14px; }
 legend { font-weight: 600; padding: 0 6px; }
 label { display: block; margin-bottom: 10px; font-size: 14px; }

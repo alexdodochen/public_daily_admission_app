@@ -13,7 +13,8 @@ from fastapi.testclient import TestClient
 
 from app import config as appconfig
 from app import main as app_main
-from app.services import cathlab_service, updater, sheet_service, format_check_service
+from app.services import (cathlab_service, updater, sheet_service,
+                          format_check_service, finalize_service)
 
 
 @pytest.fixture
@@ -182,6 +183,20 @@ def test_format_fix_passes_types_list(client, monkeypatch):
     assert r.status_code == 200
     assert seen["date"] == "20260420"
     assert seen["types"] == ["gap_too_small", "subtable_count_mismatch"]
+
+
+def test_finalize_check_routes_through_service(client, monkeypatch):
+    monkeypatch.setattr(finalize_service, "check_ready", lambda d: {
+        "ready": False,
+        "checks": [{"id": "format", "label": "L", "ok": True, "detail": ""},
+                   {"id": "main_data", "label": "L", "ok": False, "detail": "第 2 列缺 姓名"}],
+    })
+    r = client.get("/api/finalize/check", params={"date": "20260420"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["ok"] is True
+    assert data["ready"] is False
+    assert len(data["checks"]) == 2
 
 
 def test_format_fix_empty_types_means_all(client, monkeypatch):

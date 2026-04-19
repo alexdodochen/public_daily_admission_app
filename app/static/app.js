@@ -117,6 +117,7 @@ if (document.querySelector('.stepper')) {
   setupStep5();
   setupStep6();
   setupFormatCheck();
+  setupFinalizeCheck();
 }
 
 // ---------- Format check ----------
@@ -181,6 +182,40 @@ function setupFormatCheck() {
       flash($('#fmt-msg'), '✗ ' + err.message, 'err');
     }
   });
+}
+
+// ---------- Finalize (定案) readiness check ----------
+function setupFinalizeCheck() {
+  $('#final-check-btn').addEventListener('click', async () => {
+    const date = $('#date-input').value.trim();
+    if (!date) return flash($('#final-msg'), '請先填日期', 'err');
+    flash($('#final-msg'), '檢查中…', 'ok');
+    try {
+      const r = await api(`/api/finalize/check?date=${encodeURIComponent(date)}`);
+      if (r.error) {
+        flash($('#final-msg'), '✗ ' + r.error, 'err');
+        $('#final-output').innerHTML = '';
+        return;
+      }
+      renderFinalizeChecks(r.checks);
+      flash($('#final-msg'),
+        r.ready ? '✓ 全部通過，可以進 Step 5/6' : '✗ 尚未達到定案條件',
+        r.ready ? 'ok' : 'err');
+    } catch (err) {
+      flash($('#final-msg'), '✗ ' + err.message, 'err');
+    }
+  });
+}
+
+function renderFinalizeChecks(checks) {
+  const esc = s => String(s || '').replace(/</g, '&lt;');
+  const items = checks.map(c => {
+    const icon = c.ok ? '✓' : '✗';
+    const cls = c.ok ? 'final-ok' : 'final-fail';
+    const detail = c.detail ? ` <span class="hint">— ${esc(c.detail)}</span>` : '';
+    return `<li class="${cls}"><strong>${icon}</strong> ${esc(c.label)}${detail}</li>`;
+  }).join('');
+  $('#final-output').innerHTML = `<ul class="final-checks">${items}</ul>`;
 }
 
 function renderFormatIssues(issues) {

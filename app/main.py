@@ -16,7 +16,7 @@ from . import config as appconfig
 from . import llm as llm_module
 from .services import sheet_service, ocr_service, lottery_service
 from .services import emr_service, ordering_service, line_service
-from .services import updater, cathlab_service, format_check_service
+from .services import updater, cathlab_service, format_check_service, finalize_service
 
 BASE = Path(__file__).parent
 app = FastAPI(title="每日入院名單 本地版")
@@ -297,6 +297,16 @@ async def api_format_fix(date: str = Form(...), types: str = Form("")):
     try:
         type_list = [t.strip() for t in types.split(",") if t.strip()] or None
         return {"ok": True, **format_check_service.fix(date, type_list)}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ------------------------------ Finalize readiness ------------------------------
+
+@app.get("/api/finalize/check")
+async def api_finalize_check(date: str):
+    try:
+        return {"ok": True, **finalize_service.check_ready(date)}
     except Exception as e:
         raise HTTPException(500, str(e))
 
