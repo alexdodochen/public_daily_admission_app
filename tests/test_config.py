@@ -15,9 +15,14 @@ from app import config as appconfig
 def _isolated_config(tmp_path, monkeypatch):
     """Redirect CONFIG_PATH to a temp file AND reset the module-level cache.
 
-    Without the cache reset, tests would leak into each other via `_cached`.
+    Also point bundled-resource paths to nonexistent locations so the
+    dev-tree's app/bundled/defaults.json doesn't bleed into tests that
+    assert on empty defaults. Tests that want to exercise bundling
+    re-monkeypatch these.
     """
     monkeypatch.setattr(appconfig, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(appconfig, "BUNDLED_DEFAULTS", tmp_path / "no-defaults.json")
+    monkeypatch.setattr(appconfig, "BUNDLED_SA",       tmp_path / "no-sa.json")
     monkeypatch.setattr(appconfig, "_cached", None)
     yield
 
@@ -110,3 +115,80 @@ def test_load_drops_unknown_keys_from_disk():
     assert cfg.llm_provider == "gemini"
     assert cfg.llm_api_key == "k"
     assert not hasattr(cfg, "nonsense_key")
+
+
+# ----------------------- bundled defaults layering -----------------------
+
+def test_bundled_defaults_fill_empty_fields(tmp_path, monkeypatch):
+    bundle = tmp_path / "defaults.json"
+    bundle.write_text(json.dumps({
+        "sheet_id": "BUNDLED_SHEET_ID",
+        "emr_base_url": "http://bundled-emr/",
+        "cathlab_base_url": "http://bundled-cvis/",
+    }), encoding="utf-8")
+    monkeypatch.setattr(appconfig, "BUNDLED_DEFAULTS", bundle)
+    cfg = appconfig.load()
+    assert cfg.sheet_id == "BUNDLED_SHEET_ID"
+    assert cfg.emr_base_url == "http://bundled-emr/"
+    assert cfg.cathlab_base_url == "http://bundled-cvis/"
+
+
+def test_user_config_overrides_bundled(tmp_path, monkeypatch):
+    bundle = tmp_path / "defaults.json"
+    bundle.write_text(json.dumps({"sheet_id": "BUNDLED"}), encoding="utf-8")
+    monkeypatch.setattr(appconfig, "BUNDLED_DEFAULTS", bundle)
+    # User already picked their own sheet
+    appconfig.CONFIG_PATH.write_text(
+        json.dumps({"sheet_id": "USER_PICKED"}), encoding="utf-8",
+    )
+    cfg = appconfig.load()
+    assert cfg.sheet_id == "USER_PICKED"
+
+
+def test_bundled_sa_fills_empty_creds_path(tmp_path, monkeypatch):
+    sa_file = tmp_path / "sa.json"
+    sa_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(appconfig, "BUNDLED_SA", sa_file)
+    cfg = appconfig.load()
+    assert cfg.google_creds_path == str(sa_file)
+
+
+def test_bundled_sa_does_not_override_user_path(tmp_path, monkeypatch):
+    sa_file = tmp_path / "sa.json"
+    sa_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(appconfig, "BUNDLED_SA", sa_file)
+    appconfig.CONFIG_PATH.write_text(
+        json.dumps({"google_creds_path": "C:/my/own/creds.json"}),
+        encoding="utf-8",
+    )
+    cfg = appconfig.load()
+    assert cfg.google_creds_path == "C:/my/own/creds.json"
+
+
+def test_bundled_flags_reports_what_is_available(tmp_path, monkeypatch):
+    bundle = tmp_path / "defaults.json"
+    bundle.write_text(json.dumps({
+        "sheet_id": "X",
+        "emr_base_url": "Y",
+    }), encoding="utf-8")
+    monkeypatch.setattr(appconfig, "BUNDLED_DEFAULTS", bundle)
+    # No bundled SA
+    flags = appconfig.bundled_flags()
+    assert flags["sheet_id"] is True
+    assert flags["emr_base_url"] is True
+    assert flags["cathlab_base_url"] is False
+    assert flags["google_creds_path"] is False
+
+
+def test_bundled_defaults_missing_file_is_noop(monkeypatch):
+    # Already pointed at nonexistent path by fixture
+    cfg = appconfig.load()
+    assert cfg.sheet_id == ""
+
+
+def test_bundled_defaults_corrupt_json_is_noop(tmp_path, monkeypatch):
+    bundle = tmp_path / "defaults.json"
+    bundle.write_text("{not valid", encoding="utf-8")
+    monkeypatch.setattr(appconfig, "BUNDLED_DEFAULTS", bundle)
+    cfg = appconfig.load()
+    assert cfg.sheet_id == ""  # falls back silently

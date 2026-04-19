@@ -29,6 +29,7 @@ def _ctx(request: Request, **kw):
     kw.setdefault("cfg", cfg)
     kw.setdefault("ready", cfg.is_ready())
     kw.setdefault("providers", llm_module.PROVIDERS)
+    kw.setdefault("bundled", appconfig.bundled_flags())
     return templates.TemplateResponse(request, kw.pop("template"), kw)
 
 

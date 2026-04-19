@@ -25,28 +25,46 @@
     </fieldset>
 
     <fieldset>
-      <legend>2. Google Sheet</legend>
+      <legend>2. Google Sheet{% if bundled.sheet_id or bundled.google_creds_path %} <span class="bundled-badge">系統預設</span>{% endif %}</legend>
+      {% if bundled.google_creds_path %}
+      <p class="hint">✓ Service account JSON 已由系統內建，不需填寫。</p>
+      <input type="hidden" name="google_creds_path" value="{{ cfg.google_creds_path }}">
+      {% else %}
       <label>Service account JSON 絕對路徑
         <input name="google_creds_path" value="{{ cfg.google_creds_path }}" placeholder="例：C:\Users\you\sigma-xxxxx.json">
       </label>
+      {% endif %}
+      {% if bundled.sheet_id %}
+      <p class="hint">✓ Spreadsheet ID 已由系統內建（<code>{{ cfg.sheet_id }}</code>）。如需改用其他試算表，請聯絡維護者。</p>
+      <input type="hidden" name="sheet_id" value="{{ cfg.sheet_id }}">
+      {% else %}
       <label>Spreadsheet ID
         <input name="sheet_id" value="{{ cfg.sheet_id }}" placeholder="從試算表網址 /d/ 後面那一段">
       </label>
       <p class="hint">服務帳號需要加入該試算表的編輯者。</p>
+      {% endif %}
     </fieldset>
 
+    {% if not bundled.emr_base_url %}
     <fieldset>
       <legend>3. EMR（選填，Step 3 需要）</legend>
       <label>EMR base URL
         <input name="emr_base_url" value="{{ cfg.emr_base_url }}">
       </label>
     </fieldset>
+    {% else %}
+    <input type="hidden" name="emr_base_url" value="{{ cfg.emr_base_url }}">
+    {% endif %}
 
     <fieldset>
-      <legend>4. 導管排程 WEBCVIS（選填，Step 5 需要）</legend>
+      <legend>{% if bundled.emr_base_url %}3{% else %}4{% endif %}. 導管排程 WEBCVIS（Step 5 需要）</legend>
+      {% if bundled.cathlab_base_url %}
+      <input type="hidden" name="cathlab_base_url" value="{{ cfg.cathlab_base_url }}">
+      {% else %}
       <label>WEBCVIS URL
         <input name="cathlab_base_url" value="{{ cfg.cathlab_base_url }}">
       </label>
+      {% endif %}
       <label>帳號
         <input name="cathlab_user" value="{{ cfg.cathlab_user }}">
       </label>
@@ -56,7 +74,7 @@
     </fieldset>
 
     <fieldset>
-      <legend>5. LINE 推播（選填，Step 6 需要）</legend>
+      <legend>{% if bundled.emr_base_url %}4{% else %}5{% endif %}. LINE 推播（選填，Step 6 需要）</legend>
       <label>Channel access token
         <input type="password" name="line_token" placeholder="{% if cfg.line_token %}（已儲存）{% endif %}">
       </label>

@@ -4,3 +4,13 @@ __pycache__/
 .venv/
 venv/
 .env
+
+# Bundled resources — shipped with .exe but the real SA JSON never commits.
+# The developer copies their real service_account.json into app/bundled/
+# before running PyInstaller; it must stay out of git.
+app/bundled/service_account.json
+
+# PyInstaller outputs
+build/
+dist/
+*.spec.bak

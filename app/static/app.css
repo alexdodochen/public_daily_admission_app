@@ -61,6 +61,13 @@ main { max-width: 1100px; margin: 20px auto; padding: 0 16px; }
 .final-checks li.final-ok   { color: var(--ok); }
 .final-checks li.final-fail { color: var(--bad); }
 
+.bundled-badge {
+  display: inline-block; margin-left: 6px;
+  padding: 1px 8px; border-radius: 10px;
+  background: #ecfdf5; color: #065f46;
+  font-size: 11px; font-weight: normal; vertical-align: middle;
+}
+
 fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 14px; }
 legend { font-weight: 600; padding: 0 6px; }
 label { display: block; margin-bottom: 10px; font-size: 14px; }
