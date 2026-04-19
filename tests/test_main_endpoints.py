@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from app import config as appconfig
 from app import main as app_main
-from app.services import cathlab_service, updater, sheet_service
+from app.services import cathlab_service, updater, sheet_service, format_check_service
 
 
 @pytest.fixture
@@ -151,6 +151,48 @@ def test_step5_plan_routes_through_cathlab_service(client, monkeypatch):
     entry = data["plan"]["2026/04/10"][0]
     assert entry["session"] == "AM"
     assert entry["room"] == "C2"
+
+
+# ---------------- /api/format/check & /api/format/fix ----------------
+
+def test_format_check_routes_through_service(client, monkeypatch):
+    monkeypatch.setattr(format_check_service, "check", lambda d: {
+        "structure": {"main_end": 3, "subs": []},
+        "issues": [{"type": "main_header_missing", "fixable": True}],
+        "main_header": [], "order_header": [],
+    })
+    r = client.get("/api/format/check", params={"date": "20260420"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["ok"] is True
+    assert data["issues"][0]["type"] == "main_header_missing"
+
+
+def test_format_fix_passes_types_list(client, monkeypatch):
+    seen = {}
+    def fake_fix(date, types=None):
+        seen["date"] = date
+        seen["types"] = types
+        return {"applied": [], "remaining_issues": [], "structure": {"main_end": 1, "subs": []}}
+    monkeypatch.setattr(format_check_service, "fix", fake_fix)
+
+    r = client.post("/api/format/fix",
+                    data={"date": "20260420",
+                          "types": "gap_too_small,subtable_count_mismatch"})
+    assert r.status_code == 200
+    assert seen["date"] == "20260420"
+    assert seen["types"] == ["gap_too_small", "subtable_count_mismatch"]
+
+
+def test_format_fix_empty_types_means_all(client, monkeypatch):
+    seen = {}
+    def fake_fix(date, types=None):
+        seen["types"] = types
+        return {"applied": [], "remaining_issues": [], "structure": {"main_end": 1, "subs": []}}
+    monkeypatch.setattr(format_check_service, "fix", fake_fix)
+    r = client.post("/api/format/fix", data={"date": "20260420", "types": ""})
+    assert r.status_code == 200
+    assert seen["types"] is None
 
 
 # ---------------- /api/sheet/list error propagation ----------------

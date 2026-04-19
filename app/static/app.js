@@ -116,6 +116,91 @@ if (document.querySelector('.stepper')) {
   setupStep4();
   setupStep5();
   setupStep6();
+  setupFormatCheck();
+}
+
+// ---------- Format check ----------
+const FMT_LABELS = {
+  main_header_missing:     '主資料 A-L 表頭錯誤',
+  order_header_wrong:      '入院序 N-W 表頭錯誤',
+  subtable_count_mismatch: '子表格人數標題與實際不符',
+  gap_too_small:           '子表格間空白行不足（< 2）',
+  subtable_missing_title:  '子表格缺少標題（姓名列前沒有 X（N人））',
+  chart_text_format:       '病歷號欄位格式',
+};
+
+function setupFormatCheck() {
+  let lastIssues = [];
+  $('#fmt-check-btn').addEventListener('click', async () => {
+    const date = $('#date-input').value.trim();
+    if (!date) return flash($('#fmt-msg'), '請先填日期', 'err');
+    flash($('#fmt-msg'), '檢查中…', 'ok');
+    try {
+      const r = await api(`/api/format/check?date=${encodeURIComponent(date)}`);
+      if (r.error) {
+        flash($('#fmt-msg'), '✗ ' + r.error, 'err');
+        $('#fmt-output').innerHTML = '';
+        $('#fmt-fix-btn').disabled = true;
+        return;
+      }
+      lastIssues = r.issues || [];
+      renderFormatIssues(lastIssues);
+      const fixable = lastIssues.filter(i => i.fixable);
+      if (!lastIssues.length) {
+        flash($('#fmt-msg'), '✓ 格式正常', 'ok');
+      } else {
+        flash($('#fmt-msg'),
+          `發現 ${lastIssues.length} 項問題（可自動修正 ${fixable.length} 項）`,
+          fixable.length ? 'ok' : 'err');
+      }
+      $('#fmt-fix-btn').disabled = fixable.length === 0;
+    } catch (err) {
+      flash($('#fmt-msg'), '✗ ' + err.message, 'err');
+    }
+  });
+
+  $('#fmt-fix-btn').addEventListener('click', async () => {
+    const date = $('#date-input').value.trim();
+    if (!date) return;
+    const types = [...new Set(lastIssues.filter(i => i.fixable).map(i => i.type))];
+    // Always include chart_text_format — it's safe repeatCell formatting
+    if (!types.includes('chart_text_format')) types.push('chart_text_format');
+    flash($('#fmt-msg'), '修正中…', 'ok');
+    const fd = new FormData();
+    fd.append('date', date);
+    fd.append('types', types.join(','));
+    try {
+      const r = await api('/api/format/fix', { method: 'POST', body: fd });
+      flash($('#fmt-msg'),
+        `✓ 修正 ${r.applied.length} 項，剩餘 ${r.remaining_issues.length} 項`,
+        r.remaining_issues.length === 0 ? 'ok' : 'err');
+      lastIssues = r.remaining_issues || [];
+      renderFormatIssues(lastIssues);
+      $('#fmt-fix-btn').disabled = lastIssues.filter(i => i.fixable).length === 0;
+    } catch (err) {
+      flash($('#fmt-msg'), '✗ ' + err.message, 'err');
+    }
+  });
+}
+
+function renderFormatIssues(issues) {
+  const host = $('#fmt-output');
+  if (!issues.length) { host.innerHTML = ''; return; }
+  const esc = s => String(s || '').replace(/</g, '&lt;');
+  const items = issues.map(i => {
+    const label = FMT_LABELS[i.type] || i.type;
+    const tag = i.fixable ? '' : ' <span class="hint">（需手動）</span>';
+    let detail = '';
+    if (i.type === 'subtable_count_mismatch') {
+      detail = ` — ${esc(i.doctor)}（標題寫 ${i.declared}，實際 ${i.actual}，第 ${i.title_row} 列）`;
+    } else if (i.type === 'gap_too_small') {
+      detail = ` — ${esc(i.doctor)} 前 ${i.gap} 空白（第 ${i.title_row} 列，需補 ${i.need_insert}）`;
+    } else if (i.type === 'subtable_missing_title') {
+      detail = ` — 第 ${i.subheader_row} 列`;
+    }
+    return `<li class="fmt-${i.fixable ? 'fixable' : 'manual'}">${label}${detail}${tag}</li>`;
+  }).join('');
+  host.innerHTML = `<ul class="fmt-issues">${items}</ul>`;
 }
 
 // ---------- Step 1: OCR ----------

@@ -16,7 +16,7 @@ from . import config as appconfig
 from . import llm as llm_module
 from .services import sheet_service, ocr_service, lottery_service
 from .services import emr_service, ordering_service, line_service
-from .services import updater, cathlab_service
+from .services import updater, cathlab_service, format_check_service
 
 BASE = Path(__file__).parent
 app = FastAPI(title="每日入院名單 本地版")
@@ -278,6 +278,25 @@ async def api_step6_push(date: str = Form(...), group_id: str = Form("")):
     try:
         result = await line_service.push(date, override_group=group_id)
         return {"ok": True, **result}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ------------------------------ Format check ------------------------------
+
+@app.get("/api/format/check")
+async def api_format_check(date: str):
+    try:
+        return {"ok": True, **format_check_service.check(date)}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/format/fix")
+async def api_format_fix(date: str = Form(...), types: str = Form("")):
+    try:
+        type_list = [t.strip() for t in types.split(",") if t.strip()] or None
+        return {"ok": True, **format_check_service.fix(date, type_list)}
     except Exception as e:
         raise HTTPException(500, str(e))
 
